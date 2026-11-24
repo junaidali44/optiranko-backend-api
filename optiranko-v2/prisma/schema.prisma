@@ -1,0 +1,196 @@
+generator client {
+  provider = "prisma-client-js" 
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  USER
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum OrgRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  passwordHash  String
+  name          String?
+  avatarUrl     String?
+  role          UserRole  @default(USER)
+  emailVerified Boolean   @default(false)
+  emailVerifiedAt DateTime?
+  lastLoginAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+
+  orgMemberships     OrgMember[]
+  ownedOrganizations Organization[] @relation("OrgOwner")
+  refreshTokens      RefreshToken[]
+  verificationTokens VerificationToken[]
+  audits             Audit[]
+  @@index([email])
+  @@index([deletedAt])
+}
+
+model RefreshToken {
+  id          String    @id @default(uuid())
+  userId      String
+  tokenHash   String    @unique
+  userAgent   String?
+  ipAddress   String?
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+}
+
+model VerificationToken {
+  id        String   @id @default(uuid())
+  userId    String
+  tokenHash String   @unique
+  type      String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tokenHash])
+  @@index([userId])
+}
+
+model Organization {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  ownerId   String
+  planId    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  owner   User    @relation("OrgOwner", fields: [ownerId], references: [id])
+  plan    Plan?   @relation(fields: [planId], references: [id])
+  members OrgMember[]
+  websites Website[]
+  audits       Audit[]
+  subscription Subscription?
+
+mockTransactions MockTransaction[]
+
+  @@index([ownerId])
+  @@index([slug])
+}
+
+model OrgMember {
+  id             String   @id @default(uuid())
+  organizationId String
+  userId         String
+  role           OrgRole  @default(MEMBER)
+  joinedAt       DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+  @@index([organizationId])
+}
+
+model Plan {
+  id           String   @id @default(uuid())
+  name         String   @unique
+  slug         String   @unique
+  description  String?
+  priceMonthly Int
+  priceYearly  Int
+  websiteLimit Int
+  auditLimit   Int?
+  memberLimit  Int      @default(1)
+  features     Json
+  isActive     Boolean  @default(true)
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  organizations Organization[]
+   subscriptions Subscription[]
+}
+
+model Website {
+  id             String    @id @default(uuid())
+  organizationId String
+  url            String
+  domain         String
+  name           String?
+  verified       Boolean   @default(false)
+  verifiedAt     DateTime?
+  lastAuditAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  audits       Audit[]
+  @@unique([organizationId, domain])
+  @@index([organizationId])
+}
+model Subscription {
+  id                   String    @id @default(uuid())
+  organizationId       String    @unique
+  planId               String
+  status               String    @default("active") // active, canceled, past_due
+  stripeCustomerId     String?   @unique
+  stripeSubscriptionId String?   @unique
+  currentPeriodEnd     DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  plan         Plan         @relation(fields: [planId], references: [id])
+}
+model Audit {
+  id             String   @id @default(uuid())
+  websiteId      String?
+  organizationId String?
+  userId         String?
+  url            String
+  status         String   @default("COMPLETED")
+  score          Int?
+  grade          String?
+  rawData        Json?    // The crawler output
+  aiAnalysis     Json?    // The Gemini output
+  createdAt      DateTime @default(now())
+
+  website      Website?      @relation(fields: [websiteId], references: [id])
+  organization Organization? @relation(fields: [organizationId], references: [id])
+  user         User?         @relation(fields: [userId], references: [id])
+
+  @@index([organizationId])
+}
+
+model MockTransaction {
+  id             String   @id @default(uuid())
+  organizationId String
+  planId         String
+  amount         Int
+  cardLast4      String
+  status         String   @default("completed")
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+}
